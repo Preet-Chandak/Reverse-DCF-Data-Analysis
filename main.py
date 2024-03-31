@@ -3,7 +3,9 @@ from dash import html, dcc
 from dash.dependencies import Input, Output
 import requests
 from bs4 import BeautifulSoup
-
+import plotly.graph_objects as go
+import dash_table
+import pandas as pd
 
 # Create a Dash app
 app = dash.Dash(__name__,suppress_callback_exceptions=True)
@@ -96,31 +98,62 @@ def update_stock_pe(symbol):
     median_roce = round(sorted(roce_values)[len(roce_values) // 2]) if roce_values else None
 
     # Find the tables with class 'ranges-table' and create table components
+    sales_growth_data = []
+    profit_growth_data = []
+    years = [10, 5, 3, 'TTM']  # List of years extracted from the table
+
     tables = soup.find_all('table', class_='ranges-table')
-    tables_html = []
     for table in tables:
         title = table.find('th').text.strip()
         if title in ["Compounded Sales Growth", "Compounded Profit Growth"]:
-            rows_html = []
             rows = table.find_all('tr')
             # Create heading row with years
-            years_row = rows[0]
-            years = [cell.text.strip() for cell in years_row.find_all('td')]
-            # Append heading row to the table
-            heading_row = html.Tr([html.Th('Year')] + [html.Th(year) for year in years])
-            # Iterate through remaining rows and create HTML rows
+            # years_row = rows[0]
+            # years = [cell.text.strip() for cell in years_row.find_all('td')]
+            # Iterate through remaining rows and extract growth data
             for row in rows[1:]:
                 cells = row.find_all('td')
                 if len(cells) == 2:
                     growth_values = [cell.text.strip() for cell in cells]
-                    row_html = html.Tr([html.Td(growth_values[0])] + [html.Td(growth_values[1])])
-                    rows_html.append(row_html)
-            # Create table HTML component
-            tables_html.append(html.Table([
-                html.Tr(html.Th(title, colSpan=2)),
-                heading_row,
-                *rows_html
-            ]))
+                    if '%' in growth_values[1]:  # Check if the value contains '%'
+                        growth_value = growth_values[1].replace('%', '')  # Remove '%' sign
+                    else:
+                        growth_value = growth_values[1]
+                    if title == "Compounded Sales Growth":
+                        sales_growth_data.append(growth_value)
+                    elif title == "Compounded Profit Growth":
+                        profit_growth_data.append(growth_value)
+
+    # Convert growth data to appropriate numeric format if needed
+    sales_growth_data = [float(value) for value in sales_growth_data]
+    profit_growth_data = [float(value) for value in profit_growth_data]
+
+    # Ensure the length of years matches the length of growth data
+    # years = years[:len(sales_growth_data)]  # or years[:len(profit_growth_data)] (assuming both have the same length)
+
+    # Printing extracted data for verification
+    print("Years:", years)
+    print("Sales Growth Data:", sales_growth_data)
+    print("Profit Growth Data:", profit_growth_data)
+
+
+    # sales_growth_data = [...]  # Sales growth data for each year
+    # profit_growth_data = [...]  # Profit growth data for each year
+    years = [10,5,3,'TTM']  # List of years
+    df = pd.DataFrame({'Year': years, 'Sales Growth': sales_growth_data, 'Profit Growth': profit_growth_data})
+
+    # Create bar chart for sales growth
+    fig_sales_growth = go.Figure()
+    fig_sales_growth.add_trace(go.Bar(x=df['Sales Growth'], y=df['Year'], orientation='h'))
+    fig_sales_growth.update_layout(title='Sales Growth Over Years', xaxis_title='Sales Growth', yaxis_title='Year')
+
+    # Create bar chart for profit growth
+    fig_profit_growth = go.Figure()
+    fig_profit_growth.add_trace(go.Bar(x=df['Profit Growth'], y=df['Year'], orientation='h'))
+    fig_profit_growth.update_layout(title='Profit Growth Over Years', xaxis_title='Profit Growth', yaxis_title='Year')
+
+    # Define table data
+    data = {'Year': years, 'Sales Growth': sales_growth_data, 'Profit Growth': profit_growth_data}
 
     # Build the output HTML
     output_html = html.Div([
@@ -128,7 +161,16 @@ def update_stock_pe(symbol):
         html.Span(f'Current PE: {stock_pe if stock_pe else "N/A"}'), html.Br(),
         html.Span(f'FY23PE: {FY23PE if FY23PE else "N/A"}'), html.Br(),
         html.Span(f'5-year median RoCE (excluding FY23): {median_roce if median_roce else "N/A"}%'), html.Br(),
-        *tables_html
+        html.Div([
+            dash_table.DataTable(
+        id='table',
+        columns=[{'name': col, 'id': col} for col in data.keys()],
+        data=[{col: data[col][i] for col in data.keys()} for i in range(len(years))],
+        style_table={'height': '300px', 'overflowY': 'auto'})]), 
+        html.Div([
+            html.Div(dcc.Graph(figure=fig_sales_growth), style={'flex': '50%'}),
+            html.Div(dcc.Graph(figure=fig_profit_growth), style={'flex': '50%'}),
+        ], style={'display': 'flex'}),
     ], id='stock-pe-output')
 
     return output_html
