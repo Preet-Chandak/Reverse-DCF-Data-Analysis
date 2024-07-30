@@ -1,5 +1,7 @@
 dash
 requests
 beautifulsoup4
-dash-table
+plotly
 pandas
+gunicorn
+dash-table
